@@ -1,22 +1,25 @@
 # --- App Framework ---
-streamlit==1.41.0
-python-dotenv==1.0.1
+streamlit>=1.35.0
+python-dotenv>=1.0.0
 
 # --- Data Ingestion & Processing ---
-pdfplumber==0.11.0
-pandas==2.2.0
-openpyxl==3.1.2
+pdfplumber>=0.11.0
+pandas>=2.1.0
+openpyxl>=3.1.0
 
 # --- LLM & AI Logic ---
-langchain==0.3.0
-langchain-community==0.3.0
-langchain-openai==0.2.0
-openai==1.47.0
-tiktoken==0.7.0
+langchain>=0.2.0
+langchain-community>=0.2.0
+langchain-openai>=0.1.0
+openai>=1.30.0
+tiktoken>=0.7.0
+
+# --- Embeddings (Crucial for your new script) ---
+fastembed>=0.3.0
 
 # --- Vector Database ---
-chromadb==0.5.5
+chromadb>=0.5.0
 
 # --- Streamlit Cloud Compatibility Fix ---
 # Required because Streamlit's Linux environment has an outdated SQLite
-pysqlite3-binary==0.5.2
+pysqlite3-binary>=0.5.0
