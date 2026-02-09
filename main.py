@@ -25,7 +25,6 @@ except ImportError:
 
 st.set_page_config(
     page_title="PRA Regulatory Assistant",
-    page_icon="🏦",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -93,13 +92,13 @@ class LayoutAwareParser:
         })
         self.buffer = []
 
-    def parse(self, progress_bar=None) -> List[Dict]:
+    def parse(self, status_container=None) -> List[Dict]:
         with pdfplumber.open(self.pdf_path) as pdf:
             total_pages = len(pdf.pages)
             
             for i, page in enumerate(pdf.pages):
-                if progress_bar:
-                    progress_bar.progress((i + 1) / total_pages, text=f"Scanning Page {i+1}/{total_pages}...")
+                if status_container:
+                    status_container.text(f"Scanning Page {i+1}/{total_pages}...")
 
                 lines = page.extract_text_lines()
                 
@@ -163,6 +162,7 @@ def build_vector_db(data: List[Dict], status_container):
     if DB_PATH.exists():
         try:
             shutil.rmtree(DB_PATH)
+            status_container.text("Cleared existing database.")
         except Exception:
             pass
 
@@ -192,7 +192,7 @@ def build_vector_db(data: List[Dict], status_container):
     progress_bar.empty()
     return True
 
-st.title("🏦 PRA COREP Reporting Assistant")
+st.title("PRA COREP Reporting Assistant")
 st.markdown("""
 **Status:** Prototype Phase 1  
 **Objective:** Context-Aware Extraction & Vector Embedding of EBA/PRA Regulatory Instructions.
@@ -200,35 +200,36 @@ st.markdown("""
 st.divider()
 
 with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/e/e0/Bank_of_England_Badge.svg/1200px-Bank_of_England_Badge.svg.png", width=100)
     st.header("System Status")
     
     if PDF_PATH.exists():
-        st.success(f"✅ Document Found:\n{PDF_PATH.name}")
+        st.success(f"Document Found: {PDF_PATH.name}")
     else:
-        st.error(f"❌ Missing Document:\n{PDF_PATH.name}")
-        st.info("Please upload the PDF to `DataExtraction/Documents/`")
+        st.error(f"Missing Document: {PDF_PATH.name}")
+        st.info("Please upload the PDF to DataExtraction/Documents/")
 
     if DB_PATH.exists() and any(DB_PATH.iterdir()):
-        st.success("✅ Vector Database: Ready")
+        st.success("Vector Database: Ready")
     else:
-        st.warning("⚠️ Vector Database: Not Built")
+        st.warning("Vector Database: Not Built")
 
 col1, col2 = st.columns([1, 1.5], gap="large")
 
 with col1:
-    st.subheader("⚙️ Ingestion Pipeline")
-    st.markdown("Run the full pipeline: Extract Text → Chunk → Embed into Vector DB.")
+    st.subheader("Ingestion Pipeline")
+    st.markdown("Run the full pipeline: Extract Text > Chunk > Embed into Vector DB.")
     
-    if st.button("🚀 Run Full Pipeline", type="primary", use_container_width=True):
+    if st.button("Run Full Pipeline", type="primary", use_container_width=True):
         if not PDF_PATH.exists():
             st.error("Cannot run: Source file missing.")
         else:
             status_box = st.empty()
             try:
-                status_box.info("Step 1/2: Extracting Rules from PDF...")
+                status_box.info("Step 1/3: Initializing Layout Parser...")
                 parser = LayoutAwareParser(PDF_PATH)
-                chunks = parser.parse()
+                
+                status_box.info("Step 2/3: Extracting Rules from PDF...")
+                chunks = parser.parse(status_container=status_box)
                 
                 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
                 with open(JSON_OUTPUT_PATH, 'w') as f:
@@ -236,12 +237,12 @@ with col1:
                 
                 st.session_state['chunks'] = chunks
                 
-                status_box.info(f"Step 2/2: Building Vector Database with {len(chunks)} chunks...")
+                status_box.info(f"Step 3/3: Building Vector Database with {len(chunks)} chunks...")
                 success = build_vector_db(chunks, status_box)
                 
                 if success:
-                    status_box.success("Pipeline Complete! Database is ready for RAG.")
-                    st.balloons()
+                    status_box.success("Pipeline Complete. Database is ready for RAG.")
+                    st.toast("Pipeline completed successfully!", icon="✅")
                 else:
                     status_box.error("Pipeline Failed during Embedding.")
                 
@@ -249,7 +250,7 @@ with col1:
                 st.error(f"Critical Error: {str(e)}")
 
 with col2:
-    st.subheader("📖 Knowledge Base Viewer")
+    st.subheader("Knowledge Base Viewer")
     st.markdown("Inspect the extracted rules.")
 
     data_source = []
@@ -260,7 +261,7 @@ with col2:
             data_source = json.load(f)
             
     if data_source:
-        search_term = st.text_input("🔍 Search Rule ID (e.g., '010')", placeholder="Type row number...")
+        search_term = st.text_input("Search Rule ID (e.g., '010')", placeholder="Type row number...")
         
         st.caption(f"Total Rules Indexed: {len(data_source)}")
         
@@ -270,7 +271,7 @@ with col2:
             if search_term and search_term not in meta['row_id'] and search_term.lower() not in meta['template'].lower():
                 continue
                 
-            with st.expander(f"📌 Row {meta['row_id']} | {meta['template'][:40]}...", expanded=False):
+            with st.expander(f"Row {meta['row_id']} | {meta['template'][:40]}...", expanded=False):
                 st.markdown(f"**Template:** `{meta['template']}`")
                 st.markdown(f"**Row ID:** `{meta['row_id']}`")
                 st.markdown("**Instruction Content:**")
@@ -280,7 +281,7 @@ with col2:
             
             count += 1
             if count > 50 and not search_term:
-                st.warning("⚠️ Showing first 50 rules only. Use search to find specific rows.")
+                st.warning("Showing first 50 rules only. Use search to find specific rows.")
                 break
     else:
         st.info("Waiting for pipeline execution...")
