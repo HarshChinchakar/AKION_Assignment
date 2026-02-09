@@ -7,12 +7,17 @@ import shutil
 import gc
 import os
 import sys
+import time
 from pathlib import Path
 from typing import List, Dict, Generator
 
+# --- STREAMLIT CLOUD SQLITE FIX ---
 __import__('pysqlite3')
 import sys
 sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+
+# --- DISABLE CHROMA TELEMETRY ---
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
 
 from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
@@ -29,6 +34,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- CONFIGURATION ---
 BASE_DIR = Path(__file__).parent
 DOCS_DIR = BASE_DIR / "DataExtraction" / "Documents"
 PROCESSED_DIR = BASE_DIR / "DataExtraction" / "Processed"
@@ -36,9 +42,14 @@ PDF_PATH = DOCS_DIR / "corep-own-funds-instructions (1).pdf"
 JSON_OUTPUT_PATH = PROCESSED_DIR / "regulatory_knowledge_base.json"
 DB_PATH = BASE_DIR / "vector_store"
 
+# --- LOW RESOURCE SETTINGS ---
+# Reduced from 50 to 10 to prevent Streamlit Cloud crashes
+BATCH_SIZE = 10 
+
 class CustomFastEmbed(Embeddings):
     def __init__(self, model_name="BAAI/bge-small-en-v1.5"):
-        self.model = TextEmbedding(model_name=model_name, threads=None)
+        # threads=1 is CRITICAL for Streamlit Cloud to prevent CPU throttling
+        self.model = TextEmbedding(model_name=model_name, threads=1)
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         return [e.tolist() for e in self.model.embed(texts)]
@@ -152,38 +163,43 @@ def batch_generator(data: List[Dict], batch_size: int) -> Generator[List[Documen
         yield batch
 
 def build_vector_db(data: List[Dict], status_container):
-    status_container.info("Initializing Embedding Engine...")
+    status_container.info("Initializing Embedding Engine (Lightweight Mode)...")
     try:
         embedding_engine = CustomFastEmbed()
     except Exception as e:
         status_container.error(f"Failed to load model: {e}")
         return False
 
+    # Clean existing DB to prevent corruption
     if DB_PATH.exists():
         try:
             shutil.rmtree(DB_PATH)
-            status_container.text("Cleared existing database.")
         except Exception:
             pass
 
+    # Initialize Chroma
     db = Chroma(
         persist_directory=str(DB_PATH),
         embedding_function=embedding_engine
     )
 
-    BATCH_SIZE = 50
     total = len(data)
     count = 0
 
-    status_container.info(f"Embedding {total} chunks...")
+    status_container.info(f"Embedding {total} chunks in batches of {BATCH_SIZE}...")
     progress_bar = status_container.progress(0)
 
     for batch in batch_generator(data, BATCH_SIZE):
         try:
             db.add_documents(batch)
             count += len(batch)
+            
+            # AGGRESSIVE MEMORY MANAGEMENT
             del batch
-            gc.collect()
+            gc.collect() 
+            # Tiny sleep to prevent CPU throttling on Cloud
+            time.sleep(0.05) 
+            
             progress_bar.progress(min(count / total, 1.0))
         except Exception as e:
             status_container.error(f"Batch Error: {e}")
@@ -237,7 +253,7 @@ with col1:
                 
                 st.session_state['chunks'] = chunks
                 
-                status_box.info(f"Step 3/3: Building Vector Database with {len(chunks)} chunks...")
+                status_box.info(f"Step 3/3: Building Vector Database...")
                 success = build_vector_db(chunks, status_box)
                 
                 if success:
